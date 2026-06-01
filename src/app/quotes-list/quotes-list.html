@@ -1,0 +1,46 @@
+<div class="quotes-container">
+  <h1>Quotes</h1>
+
+  <!-- Filter input — updates filterText signal -->
+  <div class="filter-bar">
+    <input
+      type="text"
+      placeholder="Filter by author..."
+      (input)="onFilterChange($event)"
+    />
+    <!-- Computed value displayed — updates automatically when signals change -->
+    <span class="count">{{ displayCount() }} quotes</span>
+  </div>
+
+  <!-- Loading state -->
+  @if (loading()) {
+    <p class="loading">Loading...</p>
+  }
+
+  <!-- Empty state — uses isEmpty computed signal -->
+  @if (!loading() && isEmpty()) {
+    <p class="empty">No quotes found for "{{ filterText() }}"</p>
+  }
+
+  <!-- Quotes list — @for with track for performance -->
+  @if (!loading() && !isEmpty()) {
+    <ul class="quotes-list">
+      @for (quote of filteredQuotes(); track quote.id) {
+        <li class="quote-card">
+          <div class="author-badge">{{ quote.authorInitials }}</div>
+          <div class="quote-content">
+            <strong class="author-name">{{ quote.author }}</strong>
+            <p class="short-text">{{ quote.shortText }}</p>
+          </div>
+        </li>
+      }
+    </ul>
+  }
+
+  <!-- Pagination -->
+  <div class="pagination">
+    <button (click)="prevPage()" [disabled]="page() === 1">← Prev</button>
+    <span>Page {{ page() }}</span>
+    <button (click)="nextPage()">Next →</button>
+  </div>
+</div>
