@@ -1,0 +1,195 @@
+Day 13 — Signals + Zoneless + Standalone
+=========================================
+
+## (1) Brief to the Agent
+
+Build a standalone Angular 21 app (no NgModules) against my Week-1 Quotes API.
+
+Real endpoint: GET http://localhost:5150/api/quotes/summary?page={page}&size={size}
+Real field names: id (number), author (string), authorInitials (string), shortText (string)
+
+Requirements:
+- provideZonelessChangeDetection() in app.config.ts — no Zone.js
+- inject() everywhere, no constructor injection
+- Four signal()s: quotes, filterText, page, loading
+- Two computed()s derived from multiple signals:
+    filteredQuotes — derives from quotes + filterText
+    displayCount   — derives from filteredQuotes
+- One effect() that logs filter state whenever signals change
+- New control flow: @if for loading/empty/list states, @for with track quote.id
+- Filter input that updates filterText signal; list re-renders without manual trigger
+
+---
+
+## (2) Agent Output
+
+### src/app/app.config.ts
+import {
+  ApplicationConfig,
+  provideZonelessChangeDetection
+} from '@angular/core';
+import { provideHttpClient } from '@angular/common/http';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideZonelessChangeDetection(),
+    provideHttpClient()
+  ]
+};
+
+### src/app/quotes.service.ts
+import { inject, Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+
+export interface Quote {
+  id: number;
+  author: string;
+  authorInitials: string;
+  shortText: string;
+}
+
+@Injectable({ providedIn: 'root' })
+export class QuotesService {
+  private http = inject(HttpClient);
+  private baseUrl = 'http://localhost:5150';
+
+  getSummary(page: number, size: number) {
+    return this.http.get<Quote[]>(
+      `${this.baseUrl}/api/quotes/summary?page=${page}&size=${size}`
+    );
+  }
+}
+
+### src/app/quotes-list/quotes-list.ts
+import { Component, computed, effect, inject, signal, OnInit } from '@angular/core';
+import { Quote, QuotesService } from '../quotes.service';
+
+@Component({
+  selector: 'app-quotes-list',
+  standalone: true,
+  imports: [],
+  templateUrl: './quotes-list.html',
+  styleUrl: './quotes-list.css'
+})
+export class QuotesList implements OnInit {
+  private quotesService = inject(QuotesService);
+
+  quotes     = signal<Quote[]>([]);
+  filterText = signal('');
+  page       = signal(1);
+  loading    = signal(false);
+
+  filteredQuotes = computed(() =>
+    this.quotes().filter(q =>
+      q.author.toLowerCase().includes(this.filterText().toLowerCase())
+    )
+  );
+
+  displayCount = computed(() => this.filteredQuotes().length);
+  isEmpty      = computed(() => this.filteredQuotes().length === 0);
+
+  constructor() {
+    effect(() => {
+      console.log(
+        `Filter: "${this.filterText()}" → showing ${this.displayCount()} of ${this.quotes().length} quotes`
+      );
+    });
+  }
+
+  ngOnInit() { this.loadQuotes(); }
+
+  loadQuotes() {
+    this.loading.set(true);
+    this.quotesService.getSummary(this.page(), 20).subscribe({
+      next: quotes => { this.quotes.set(quotes); this.loading.set(false); },
+      error: ()    => { this.loading.set(false); }
+    });
+  }
+
+  onFilterChange(event: Event) {
+    this.filterText.set((event.target as HTMLInputElement).value);
+  }
+
+  nextPage() { this.page.update(p => p + 1); this.loadQuotes(); }
+  prevPage()  { if (this.page() > 1) { this.page.update(p => p - 1); this.loadQuotes(); } }
+}
+
+### src/app/quotes-list/quotes-list.html
+<div class="quotes-container">
+  <h1>Quotes</h1>
+  <div class="filter-bar">
+    <input type="text" placeholder="Filter by author..." (input)="onFilterChange($event)" />
+    <span class="count">{{ displayCount() }} quotes</span>
+  </div>
+
+  @if (loading()) {
+    <p class="loading">Loading...</p>
+  }
+  @if (!loading() && isEmpty()) {
+    <p class="empty">No quotes found for "{{ filterText() }}"</p>
+  }
+  @if (!loading() && !isEmpty()) {
+    <ul class="quotes-list">
+      @for (quote of filteredQuotes(); track quote.id) {
+        <li class="quote-card">
+          <div class="author-badge">{{ quote.authorInitials }}</div>
+          <div class="quote-content">
+            <strong class="author-name">{{ quote.author }}</strong>
+            <p class="short-text">{{ quote.shortText }}</p>
+          </div>
+        </li>
+      }
+    </ul>
+  }
+
+  <div class="pagination">
+    <button (click)="prevPage()" [disabled]="page() === 1">← Prev</button>
+    <span>Page {{ page() }}</span>
+    <button (click)="nextPage()">Next →</button>
+  </div>
+</div>
+
+---
+
+## (3) Verification Log
+
+States exercised:
+
+  Loading spinner     — visible on page load before API responds ✅
+  API down/empty list — backend offline → isEmpty() true → "No quotes found for """  ✅
+  Quotes load         — 20 quotes render on page 1 from real API ✅
+  Filter updates list — typing "Seed" → filteredQuotes recomputes, count updates ✅
+  Filter clears       — clearing input → all 20 quotes reappear ✅
+  Empty filter state  — typing "xyz" → isEmpty() true → empty message shows ✅
+  Pagination          — Next loads page 2, Prev disabled on page 1 ✅
+
+Effect log output (browser console):
+  Filter: "" → showing 20 of 20 quotes
+  Filter: "S" → showing 20 of 20 quotes
+  Filter: "Se" → showing 20 of 20 quotes
+  Filter: "See" → showing 20 of 20 quotes
+  Filter: "Seed" → showing 20 of 20 quotes
+  Filter: "xyz" → showing 0 of 20 quotes
+
+Bug caught and fixed:
+  The agent initially used provideExperimentalZonelessChangeDetection —
+  a name that existed in Angular 18/19 but was removed in Angular 21.
+  Build error: TS2724 — no exported member named
+  'provideExperimentalZonelessChangeDetection'. Did you mean
+  'provideZonelessChangeDetection'?
+  Fixed: renamed import and call site in app.config.ts.
+
+What would break if API contract changed:
+  - id removed/renamed     → track quote.id becomes undefined, DOM identity lost
+  - author renamed         → filteredQuotes always returns all quotes (silent bug)
+  - authorInitials removed → author badge renders blank, no error
+  - endpoint path changed  → 404 at runtime, loading signal stays false,
+                             empty state shows with no user-facing error message
+
+What zoneless changes about change detection:
+  Zone.js patches every browser async API and triggers a full component tree
+  check after each event — even ones unrelated to your component. Zoneless
+  removes Zone.js entirely. Angular only re-renders when a signal that a
+  template reads has changed. This means setTimeout/setInterval mutations
+  to plain variables won't show in the UI — all mutable state must be a
+  signal(). The payoff: no unnecessary checks, smaller bundle, faster UI.
