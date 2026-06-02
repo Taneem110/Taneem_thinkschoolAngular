@@ -78,8 +78,18 @@
       </div>
     }
 
-    <!-- Empty state -->
-    @if (isEmpty()) {
+    <!-- Browse error — backend is down -->
+    @if (browseError() && !loading()) {
+      <div class="empty-state">
+        <div class="empty-icon">⚠️</div>
+        <p class="empty-title">Could not load quotes</p>
+        <p class="empty-sub">{{ browseError() }}</p>
+        <button class="reset-btn" (click)="loadQuotes()">Retry</button>
+      </div>
+    }
+
+    <!-- Empty state — search returned nothing -->
+    @if (isEmpty() && !browseError()) {
       <div class="empty-state">
         <div class="empty-icon">🔍</div>
         <p class="empty-title">No quotes found</p>
@@ -92,7 +102,12 @@
     @if (!loading() && !searchLoading() && !isEmpty()) {
       <ul class="quotes-list">
         @for (quote of visibleQuotes(); track quote.id) {
-          <li class="quote-card" [style.--accent]="authorColor(quote.author)">
+          <li
+            class="quote-card"
+            [class.selected]="selectedId() === quote.id"
+            [style.--accent]="authorColor(quote.author)"
+            (click)="selectQuote(quote.id)"
+          >
             <div class="author-badge" [style.background]="authorColor(quote.author)">
               {{ quote.authorInitials }}
             </div>
@@ -100,6 +115,7 @@
               <strong class="author-name">{{ quote.author }}</strong>
               <p class="short-text">"{{ quote.shortText }}"</p>
             </div>
+            <span class="card-arrow">›</span>
           </li>
         }
       </ul>
@@ -138,3 +154,42 @@
 
   </main>
 </div>
+
+<!-- ── Detail panel — slides in when a quote is selected ── -->
+@if (selectedId() !== null) {
+  <div class="detail-overlay" (click)="closeDetail()"></div>
+  <aside class="detail-panel">
+    <button class="detail-close" (click)="closeDetail()">✕</button>
+
+    @if (detailLoading()) {
+      <div class="detail-skeleton">
+        <div class="ds-avatar"></div>
+        <div class="ds-lines">
+          <div class="ds-line short"></div>
+          <div class="ds-line long"></div>
+          <div class="ds-line long"></div>
+          <div class="ds-line medium"></div>
+        </div>
+      </div>
+    }
+
+    @if (detailError()) {
+      <div class="detail-error">
+        <p class="error-icon">⚠️</p>
+        <p class="error-msg">{{ detailError() }}</p>
+        <button class="retry-btn" (click)="selectQuote(selectedId()!)">Retry</button>
+      </div>
+    }
+
+    @if (!detailLoading() && !detailError() && detail()) {
+      <div class="detail-content">
+        <div class="detail-badge" [style.background]="authorColor(detail()!.author)">
+          {{ detail()!.author[0] }}
+        </div>
+        <h2 class="detail-author">{{ detail()!.author }}</h2>
+        <blockquote class="detail-text">"{{ detail()!.text }}"</blockquote>
+        <p class="detail-id">Quote #{{ detail()!.id }}</p>
+      </div>
+    }
+  </aside>
+}

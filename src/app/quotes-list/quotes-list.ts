@@ -1,7 +1,7 @@
 import {
   Component, computed, effect, inject, signal, OnInit, viewChild, ElementRef
 } from '@angular/core';
-import { Quote, QuotesService } from '../quotes.service';
+import { Quote, QuoteDetail, QuotesService } from '../quotes.service';
 
 @Component({
   selector: 'app-quotes-list',
@@ -39,8 +39,20 @@ export class QuotesList implements OnInit {
   // Signal 7 — true when browse page returned fewer items than pageSize → no more pages
   isLastPage = signal(false);
 
+  // Signal — set when the initial browse fetch fails (backend down)
+  browseError = signal<string | null>(null);
+
   // Signal 8 — current page within search results (client-side)
   searchPage = signal(1);
+
+  // Detail signals
+  selectedId    = signal<number | null>(null);
+  detail        = signal<QuoteDetail | null>(null);
+  detailLoading = signal(false);
+  detailError   = signal<string | null>(null);
+
+  // Race condition guard — incremented on every selectQuote() call
+  private detailRequestId = 0;
 
   // Computed — are we in search mode?
   isSearchMode = computed(() => this.filterText().trim().length > 0);
@@ -119,13 +131,17 @@ export class QuotesList implements OnInit {
 
   loadQuotes() {
     this.loading.set(true);
+    this.browseError.set(null);
     this.quotesService.getSummary(this.page(), this.pageSize).subscribe({
       next: quotes => {
         this.browseQuotes.set(quotes);
         this.isLastPage.set(quotes.length < this.pageSize);
         this.loading.set(false);
       },
-      error: () => { this.loading.set(false); }
+      error: () => {
+        this.browseError.set('Could not reach the server. Is the backend running?');
+        this.loading.set(false);
+      }
     });
   }
 
@@ -167,6 +183,35 @@ export class QuotesList implements OnInit {
 
   prevSearchPage() {
     if (this.searchPage() > 1) this.searchPage.update(p => p - 1);
+  }
+
+  selectQuote(id: number) {
+    this.selectedId.set(id);
+    this.detail.set(null);
+    this.detailError.set(null);
+
+    const requestId = ++this.detailRequestId;
+    this.detailLoading.set(true);
+
+    this.quotesService.getById(id).subscribe({
+      next: quote => {
+        if (requestId !== this.detailRequestId) return; // stale — a newer click already fired
+        this.detail.set(quote);
+        this.detailLoading.set(false);
+      },
+      error: () => {
+        if (requestId !== this.detailRequestId) return;
+        this.detailError.set('Could not load quote. Check your connection and try again.');
+        this.detailLoading.set(false);
+      }
+    });
+  }
+
+  closeDetail() {
+    this.selectedId.set(null);
+    this.detail.set(null);
+    this.detailError.set(null);
+    this.detailLoading.set(false);
   }
 
   // Deterministic color per author — same author always gets the same color
